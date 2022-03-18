@@ -43,13 +43,15 @@ func FuzzRead(f *testing.F) {
 }
 
 func BenchmarkWrite(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		key := strconv.Itoa(i)
-		value := []byte{byte(i)}
+	for n := 0; n < b.N; n++ {
+		for i := 0; i < 1000; i++ {
+			key := strconv.Itoa(i)
+			value := []byte{byte(i)}
 
-		err := db.write(key, value)
-		if err != nil {
-			b.Errorf("write test of benchmark error: %s, %s", key, value)
+			err := db.write(key, value)
+			if err != nil {
+				b.Errorf("write test of benchmark error: %s, %s", key, value)
+			}
 		}
 	}
 }
