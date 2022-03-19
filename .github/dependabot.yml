@@ -6,6 +6,7 @@ updates:
       interval: "weekly"
       timezone: "Asia/Shanghai"
   - package-ecosystem: "gomod"
+    directory: "/"
     schedule:
       interval: "weekly"
       timezone: "Asia/Shanghai"
