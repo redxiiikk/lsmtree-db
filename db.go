@@ -1,41 +1,37 @@
 package db
 
 import (
-	"encoding/binary"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 )
 
-type KeyType string
-type ValueType []byte
-
 type LSMDb interface {
-	Read(key KeyType) (ValueType, error)
-	Write(key KeyType, value ValueType) error
+	Read(key []byte) ([]byte, error)
+	Write(key []byte, value []byte) error
 }
 
 type Configuration struct {
-	LimitKeyCount int
-	StorePath     string
+	TableRecordMaxCountLimit int
+	StorePath           string
 }
 
 type database struct {
 	conf         Configuration
-	mTableCount  int
-	activeMTable map[KeyType]ValueType
-	refreshChan  chan map[KeyType]ValueType
+	activeMTable table
+	refreshChan  chan table
 }
 
-const defaultSize = 1024
+const (
+	defaultSize  = 1024
+	initTableNum = 0
+)
 
 func New(conf Configuration) LSMDb {
 	db := &database{
 		conf:         conf,
-		mTableCount:  0,
-		activeMTable: make(map[KeyType]ValueType, defaultSize),
-		refreshChan:  make(chan map[KeyType]ValueType),
+		activeMTable: newTable(initTableNum),
+		refreshChan:  make(chan table),
 	}
 
 	go db.refresh()
@@ -43,78 +39,35 @@ func New(conf Configuration) LSMDb {
 	return db
 }
 
-func (db *database) Read(key KeyType) (ValueType, error) {
-	if value, existed := db.activeMTable[key]; existed {
+func (db *database) Read(key []byte) ([]byte, error) {
+	if value, existed := db.activeMTable.get(key); existed {
 		return value, nil
 	}
 	return []byte{}, errors.New("key Not Existed")
 }
 
-func (db *database) Write(key KeyType, value ValueType) error {
+func (db *database) Write(key []byte, value []byte) (err error) {
 	if db.isNeedRefresh() {
 		db.refreshChan <- db.activeMTable
-		db.activeMTable = make(map[KeyType]ValueType, defaultSize)
+		db.activeMTable = newTable(db.activeMTable.tableNum + 1)
 	}
 
-	db.activeMTable[key] = value
-	return nil
+	db.activeMTable.put(key, value)
+	return
 }
 
 func (db *database) isNeedRefresh() bool {
-	return db.conf.LimitKeyCount != 0 && len(db.activeMTable) >= db.conf.LimitKeyCount
+	return db.conf.TableRecordMaxCountLimit != 0 && int(db.activeMTable.count) >= db.conf.TableRecordMaxCountLimit
 }
 
 func (db *database) refresh() {
-	fmt.Println("run refresh!!!")
+	// TODO: need track log when background thread of refresh start
+	for {
+		mTable, isOpen := <-db.refreshChan
+		os.WriteFile(db.conf.StorePath+"/"+strconv.Itoa(int(mTable.tableNum))+".db-lsm", mTable.toBytes(), 0544)
 
-	for true {
-		fmt.Println("start refresh mTable")
-		mTable := <-db.refreshChan
-
-		data := make([][]byte, len(mTable))
-		totalBytesSize := 0
-
-		startIndex := 0
-		var record []byte
-		for key, value := range mTable {
-			fmt.Printf("key: %x, value: %x \n", key, value)
-
-			kBytes := []byte(key)
-
-			record = make([]byte, 4+4+len(kBytes)+len(value))
-
-			binary.BigEndian.PutUint32(record[0:4], uint32(len(kBytes)))
-			binary.BigEndian.PutUint32(record[4:8], uint32(len(value)))
-
-			copy(record[8:8+len(kBytes)], key)
-			copy(record[8+len(kBytes):], value)
-
-			totalBytesSize += len(record)
-
-			data[startIndex] = record
-			startIndex++
+		if !isOpen {
+			break
 		}
-
-		fmt.Printf("record bytes array: %x \n", data)
-
-		result := make([]byte, totalBytesSize+len(data)*16)
-
-		startIndex = 0
-		middleIndex := 0
-		endndIndex := 0
-		for _, record := range data {
-			middleIndex = startIndex + 16
-			endndIndex = middleIndex + len(record)
-
-			binary.BigEndian.PutUint64(result[startIndex:middleIndex], uint64(len(record)))
-			copy(result[middleIndex:endndIndex], record)
-
-			startIndex = endndIndex
-		}
-
-		fmt.Printf("final store bytes: %x \n", result)
-
-		os.WriteFile(db.conf.StorePath+"/"+strconv.Itoa(db.mTableCount)+".db-lsm", result, 0544)
-		db.mTableCount++
 	}
 }
