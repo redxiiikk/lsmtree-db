@@ -12,8 +12,8 @@ type LSMDb interface {
 }
 
 type Configuration struct {
-	TableRecordMaxCountLimit int
-	StorePath           string
+	TableRecordMaxCountLimit uint32
+	StorePath                string
 }
 
 type database struct {
@@ -57,7 +57,8 @@ func (db *database) Write(key []byte, value []byte) (err error) {
 }
 
 func (db *database) isNeedRefresh() bool {
-	return db.conf.TableRecordMaxCountLimit != 0 && int(db.activeMTable.count) >= db.conf.TableRecordMaxCountLimit
+	// TODO: this has a bug, don't get count of active table, so don't refresh data to file
+	return db.conf.TableRecordMaxCountLimit != 0 && db.activeMTable.count >= db.conf.TableRecordMaxCountLimit
 }
 
 func (db *database) refresh() {
